@@ -49,14 +49,14 @@ const WEIGHT_SPEED = 0.55;
 const WEIGHT_ROM = 0.45;
 const VISIBILITY_THRESHOLD = 0.5;
 
-const RISK_COLORS: Record<string, string> = {
+const RISK_COLORS: Record<JointStressEntry["riskTier"], string> = {
   low: "#22c55e",
   moderate: "#f59e0b",
   high: "#ef4444",
   critical: "#7c3aed",
 };
 
-const RECOMMENDATIONS: Record<string, string> = {
+const RECOMMENDATIONS: Record<JointStressEntry["riskTier"], string> = {
   low: "Joint load is within safe limits. Maintain current form and stay hydrated.",
   moderate: "Moderate joint stress detected. Consider a brief rest and focus on controlled movements.",
   high: "High joint stress detected. Reduce speed or load and prioritise recovery.",
@@ -86,12 +86,15 @@ const JOINT_DEFINITIONS: JointDefinition[] = [
 ];
 
 function jointAngleDeg(a: any, b: any, c: any): number {
+  return calculateAngleDeg(a, b, c);
+}
+
+function calculateAngleDeg(a: any, b: any, c: any): number {
   const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
   let angle = Math.abs((radians * 180.0) / Math.PI);
   if (angle > 180.0) angle = 360 - angle;
   return angle;
 }
-
 function normalise(value: number, min: number, max: number): number {
   if (max === min) return 0;
   return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
@@ -185,12 +188,21 @@ class SkeletalSense {
       };
     }
 
-    const durationSeconds =
-      (frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000;
-
-    const joints = JOINT_DEFINITIONS.map((def) => this._computeJointStress(def, frames));
-    const sessionBSI = joints.reduce((sum, j) => sum + j.bsi, 0) / joints.length;
-    const mostStressed = joints.reduce((prev, curr) => (curr.bsi > prev.bsi ? curr : prev));
+     const sortedFrames = [...frames].sort((a, b) => a.timestamp - b.timestamp);
+     const durationSeconds = Math.max(
+    0,
+    (sortedFrames[sortedFrames.length - 1].timestamp - sortedFrames[0].timestamp) / 1000
+     );
+  
+     const joints = JOINT_DEFINITIONS.map((def) =>
+      this._computeJointStress(def, sortedFrames));
+    const validJoints = joints.filter((j) => j.peakSpeed > 0 || j.rangeOfMotion > 0);
+    const sessionBSI = validJoints.length > 0
+      ? validJoints.reduce((sum, j) => sum + j.bsi, 0) / validJoints.length
+      : 0;
+    const mostStressed = validJoints.length > 0
+      ? validJoints.reduce((prev, curr) => (curr.bsi > prev.bsi ? curr : prev))
+      : joints[0];
     const sessionRiskTier = toRiskTier(sessionBSI);
 
     return {
